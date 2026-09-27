@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# archivos locales de trabajo
+__pycache__/
+app/page.backup-*.tsx
+app/revista/**/page.backup-*.tsx
+app/coleccion/**/page.backup-*.tsx
+app/editorial/**/page.backup-*.tsx
+~/
+app/importador/page.backup-*.tsx
