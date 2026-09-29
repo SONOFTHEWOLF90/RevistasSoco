@@ -64,20 +64,13 @@ jobs:
           no_check_bucket = true
           EOF
 
-      - name: Mostrar datos recibidos
+      - name: Crear carpetas
         run: |
-          echo "========================================"
-          echo "DATOS DE LA REVISTA"
-          echo "========================================"
-          echo "PDF:        ${{ inputs.pdf_r2_path }}"
-          echo "Editorial:  ${{ inputs.editorial }}"
-          echo "Colección:  ${{ inputs.collection }}"
-          echo "Número:     ${{ inputs.issue }}"
-          echo "Nombre:     ${{ inputs.name }}"
-          echo "Prefijo:    ${{ inputs.magazine_prefix }}"
-          echo "========================================"
+          mkdir -p work/pdf
+          mkdir -p work/jpeg
+          mkdir -p work/webp/thumbs
 
-      - name: Crear destino R2
+      - name: Calcular destino R2
         id: destino
         env:
           EDITORIAL: ${{ inputs.editorial }}
@@ -110,15 +103,151 @@ jobs:
 
           echo "r2_path=$r2_path" >> "$GITHUB_OUTPUT"
 
-          echo "Destino R2:"
+          echo "========================================"
+          echo "DESTINO R2"
+          echo "========================================"
           echo "$r2_path"
+          echo "========================================"
 
-      - name: Resultado
+      - name: Descargar PDF desde R2
+        env:
+          PDF_R2_PATH: ${{ inputs.pdf_r2_path }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          echo "Descargando:"
+          echo "$PDF_R2_PATH"
+
+          rclone copy \
+            "alpaca-r2:${R2_BUCKET}/${PDF_R2_PATH}" \
+            work/pdf/
+
+          echo "PDF descargado:"
+          ls -lh work/pdf/
+
+      - name: PDF → JPEG
+        run: |
+          pdftoppm \
+            -cropbox \
+            -r 120 \
+            -jpeg \
+            -jpegopt quality=95 \
+            work/pdf/*.pdf \
+            work/jpeg/page
+
+          total=$(find work/jpeg -name 'page-*.jpg' | wc -l)
+
+          if [ "$total" -eq 0 ]; then
+            echo "ERROR: No se generaron JPEG."
+            exit 1
+          fi
+
+          echo "JPEG generados: $total"
+
+      - name: JPEG → WebP
+        env:
+          MAGAZINE_PREFIX: ${{ inputs.magazine_prefix }}
+        run: |
+          total=$(find work/jpeg -name 'page-*.jpg' | wc -l)
+          index=0
+
+          for jpeg in work/jpeg/page-*.jpg; do
+            index=$((index + 1))
+
+            output=$(printf "work/webp/${MAGAZINE_PREFIX}-%03d.webp" "$index")
+
+            cwebp \
+              -q 85 \
+              -resize 1800 0 \
+              "$jpeg" \
+              -o "$output"
+
+            echo "WebP $index/$total: $(basename "$output")"
+          done
+
+      - name: Crear thumbnails
+        run: |
+          for webp in work/webp/*.webp; do
+            filename=$(basename "$webp" .webp)
+            number="${filename##*-}"
+
+            cwebp \
+              -q 75 \
+              -resize 320 0 \
+              "$webp" \
+              -o "work/webp/thumbs/${number}.webp"
+          done
+
+          echo "Thumbnails generados:"
+          find work/webp/thumbs -type f | wc -l
+
+      - name: Crear portada
+        run: |
+          first_page=$(find work/webp -maxdepth 1 -name '*.webp' | sort | head -n 1)
+
+          if [ -z "$first_page" ]; then
+            echo "ERROR: No existe ninguna página WebP."
+            exit 1
+          fi
+
+          cp "$first_page" work/webp/cover.webp
+
+          echo "Portada creada:"
+          ls -lh work/webp/cover.webp
+
+      - name: Mostrar resumen
         env:
           R2_PATH: ${{ steps.destino.outputs.r2_path }}
         run: |
+          pages=$(find work/webp -maxdepth 1 -name '*.webp' | wc -l)
+          thumbs=$(find work/webp/thumbs -type f | wc -l)
+
           echo "========================================"
-          echo "DESTINO CALCULADO"
+          echo "RESUMEN"
           echo "========================================"
-          echo "$R2_PATH"
+          echo "Editorial: ${{ inputs.editorial }}"
+          echo "Colección: ${{ inputs.collection }}"
+          echo "Número:     ${{ inputs.issue }}"
+          echo "Nombre:     ${{ inputs.name }}"
+          echo "Páginas:    $pages"
+          echo "Thumbnails: $thumbs"
+          echo "R2:         $R2_PATH"
+          echo "========================================"
+
+      - name: Subir revista a R2
+        env:
+          R2_PATH: ${{ steps.destino.outputs.r2_path }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          rclone copy \
+            work/webp/ \
+            "alpaca-r2:${R2_BUCKET}/${R2_PATH}/"
+
+          echo "Subida completada."
+
+      - name: Verificar R2
+        env:
+          R2_PATH: ${{ steps.destino.outputs.r2_path }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          echo "Archivos encontrados en R2:"
+
+          rclone lsf \
+            "alpaca-r2:${R2_BUCKET}/${R2_PATH}/" \
+            --files-only \
+            --recursive
+
+          count=$(rclone lsf \
+            "alpaca-r2:${R2_BUCKET}/${R2_PATH}/" \
+            --files-only \
+            --recursive | wc -l)
+
+          echo "Total de archivos: $count"
+
+          if [ "$count" -lt 3 ]; then
+            echo "ERROR: La subida parece incompleta."
+            exit 1
+          fi
+
+          echo "========================================"
+          echo "IMPORTACIÓN DE PRUEBA COMPLETADA"
           echo "========================================"
