@@ -72,6 +72,8 @@ jobs:
           no_check_bucket = true
           EOF_RCLONE
 
+          rclone version
+
       - name: Marcar importación como procesando
         env:
           IMPORT_ID: ${{ inputs.import_id }}
