@@ -28,14 +28,12 @@ on:
         required: true
         type: string
 
-      magazine_prefix:
-        description: "Prefijo de páginas"
-        required: true
-        type: string
-
 jobs:
   procesar:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     steps:
       - name: Descargar repositorio
@@ -54,7 +52,7 @@ jobs:
         run: |
           mkdir -p ~/.config/rclone
 
-          cat > ~/.config/rclone/rclone.conf <<EOF
+          cat > ~/.config/rclone/rclone.conf <<EOF_RCLONE
           [alpaca-r2]
           type = s3
           provider = Cloudflare
@@ -62,7 +60,7 @@ jobs:
           secret_access_key = ${R2_SECRET_ACCESS_KEY}
           endpoint = ${R2_ENDPOINT}
           no_check_bucket = true
-          EOF
+          EOF_RCLONE
 
       - name: Crear carpetas
         run: |
@@ -70,44 +68,148 @@ jobs:
           mkdir -p work/jpeg
           mkdir -p work/webp/thumbs
 
-      - name: Calcular destino R2
-        id: destino
+      - name: Calcular metadatos y destino R2
+        id: metadata
         env:
           EDITORIAL: ${{ inputs.editorial }}
           COLLECTION: ${{ inputs.collection }}
           ISSUE: ${{ inputs.issue }}
           NAME: ${{ inputs.name }}
+          PDF_R2_PATH: ${{ inputs.pdf_r2_path }}
         run: |
-          slugify() {
-            echo "$1" \
-              | iconv -f UTF-8 -t ASCII//TRANSLIT \
-              | tr '[:upper:]' '[:lower:]' \
-              | sed 's/[^a-z0-9]/-/g' \
-              | sed 's/-\+/-/g' \
-              | sed 's/^-//' \
-              | sed 's/-$//'
+          python3 <<'PY'
+          import hashlib
+          import json
+          import re
+          import unicodedata
+          from pathlib import Path
+
+          editorial = "${{ inputs.editorial }}"
+          collection = "${{ inputs.collection }}"
+          issue = "${{ inputs.issue }}"
+          name = "${{ inputs.name }}"
+          filename = Path("${{ inputs.pdf_r2_path }}").name
+
+          def slugify(value):
+              value = str(value or "").strip().lower()
+              value = value.replace("ß", "ss")
+              value = value.replace("ä", "ae")
+              value = value.replace("ö", "oe")
+              value = value.replace("ü", "ue")
+
+              value = unicodedata.normalize("NFKD", value)
+              value = "".join(
+                  char for char in value
+                  if not unicodedata.combining(char)
+              )
+
+              value = re.sub(r"[^\w\s-]", "", value, flags=re.UNICODE)
+              value = re.sub(r"[-\s]+", "-", value).strip("-")
+
+              return value or "sin-dato"
+
+          def clean_prefix_from_filename(filename):
+              stem = Path(filename).stem
+              stem = re.sub(r"(?i)-00$", "", stem)
+              stem = re.sub(r"(?i)_00$", "", stem)
+              return stem
+
+          def create_magazine_prefix(editorial, collection, issue, filename):
+              editorial_norm = slugify(editorial)
+              collection_norm = slugify(collection)
+
+              if editorial_norm == "lang-yarns" and collection_norm == "fam":
+                  return f"FAM-{issue}"
+
+              if editorial_norm == "lana-grossa" and collection_norm == "all-seasons":
+                  return f"AS.{str(issue).zfill(2)}"
+
+              return clean_prefix_from_filename(filename)
+
+          def normalize_path(value):
+              return str(value).replace("\\", "/").lstrip("/")
+
+          catalog_path = Path("catalogo.json")
+
+          if not catalog_path.exists():
+              raise RuntimeError("No existe catalogo.json")
+
+          with open(catalog_path, "r", encoding="utf-8") as f:
+              catalog = json.load(f)
+
+          editorial_slug = slugify(editorial)
+          collection_slug = slugify(collection)
+
+          base = slugify(issue) if str(issue).strip() else slugify(name)
+
+          candidate = f"magazines/{editorial_slug}/{collection_slug}/{base}"
+
+          used = {
+              normalize_path(item.get("r2_path", ""))
+              for item in catalog
+              if item.get("r2_path")
           }
 
-          editorial_slug=$(slugify "$EDITORIAL")
-          collection_slug=$(slugify "$COLLECTION")
-          issue_slug=$(slugify "$ISSUE")
-          name_slug=$(slugify "$NAME")
+          if candidate not in used:
+              r2_path = candidate
+          else:
+              name_slug = slugify(name)
 
-          base="${issue_slug}-${name_slug}"
+              candidate = (
+                  f"magazines/{editorial_slug}/{collection_slug}/"
+                  f"{base}-{name_slug}"
+              )
 
-          if [ -z "$base" ]; then
-            base="$issue_slug"
-          fi
+              if name_slug and candidate not in used:
+                  r2_path = candidate
+              else:
+                  digest = hashlib.sha1(
+                      filename.encode("utf-8")
+                  ).hexdigest()[:8]
 
-          r2_path="magazines/${editorial_slug}/${collection_slug}/${base}"
+                  r2_path = (
+                      f"magazines/{editorial_slug}/{collection_slug}/"
+                      f"{base}-{digest}"
+                  )
 
-          echo "r2_path=$r2_path" >> "$GITHUB_OUTPUT"
+          prefix = create_magazine_prefix(
+              editorial,
+              collection,
+              issue,
+              filename,
+          )
 
-          echo "========================================"
-          echo "DESTINO R2"
-          echo "========================================"
-          echo "$r2_path"
-          echo "========================================"
+          with open("/tmp/metadata.json", "w", encoding="utf-8") as f:
+              json.dump(
+                  {
+                      "editorial": editorial,
+                      "collection": collection,
+                      "issue": issue,
+                      "name": name,
+                      "filename": filename,
+                      "prefix": prefix,
+                      "r2_path": r2_path,
+                  },
+                  f,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+
+          print("========================================")
+          print("METADATOS")
+          print("========================================")
+          print(f"Editorial: {editorial}")
+          print(f"Colección: {collection}")
+          print(f"Número:    {issue}")
+          print(f"Nombre:    {name}")
+          print(f"Archivo:   {filename}")
+          print(f"Prefijo:   {prefix}")
+          print(f"R2:        {r2_path}")
+          print("========================================")
+          PY
+
+          echo "magazine_prefix=$(python3 -c 'import json; print(json.load(open("/tmp/metadata.json"))["prefix"])')" >> "$GITHUB_OUTPUT"
+          echo "r2_path=$(python3 -c 'import json; print(json.load(open("/tmp/metadata.json"))["r2_path"])')" >> "$GITHUB_OUTPUT"
 
       - name: Descargar PDF desde R2
         env:
@@ -139,10 +241,11 @@ jobs:
           fi
 
           echo "Páginas JPEG: $pages"
+          echo "pages=$pages" >> "$GITHUB_OUTPUT"
 
       - name: JPEG → WebP
         env:
-          MAGAZINE_PREFIX: ${{ inputs.magazine_prefix }}
+          MAGAZINE_PREFIX: ${{ steps.metadata.outputs.magazine_prefix }}
         run: |
           total=$(find work/jpeg -name 'page-*.jpg' | wc -l)
           index=0
@@ -163,12 +266,16 @@ jobs:
 
       - name: Crear thumbnails
         env:
-          MAGAZINE_PREFIX: ${{ inputs.magazine_prefix }}
+          MAGAZINE_PREFIX: ${{ steps.metadata.outputs.magazine_prefix }}
         run: |
-          total=$(find work/webp -maxdepth 1 -name "${MAGAZINE_PREFIX}-*.webp" | wc -l)
+          total=$(find work/webp -maxdepth 1 \
+            -name "${MAGAZINE_PREFIX}-*.webp" | wc -l)
+
           index=0
 
-          for webp in $(find work/webp -maxdepth 1 -name "${MAGAZINE_PREFIX}-*.webp" | sort); do
+          for webp in $(find work/webp -maxdepth 1 \
+            -name "${MAGAZINE_PREFIX}-*.webp" | sort); do
+
             index=$((index + 1))
 
             output=$(printf "work/webp/thumbs/%03d.webp" "$index")
@@ -184,7 +291,7 @@ jobs:
 
       - name: Crear portada
         env:
-          MAGAZINE_PREFIX: ${{ inputs.magazine_prefix }}
+          MAGAZINE_PREFIX: ${{ steps.metadata.outputs.magazine_prefix }}
         run: |
           first_page=$(find work/webp -maxdepth 1 \
             -name "${MAGAZINE_PREFIX}-*.webp" \
@@ -201,11 +308,11 @@ jobs:
           echo "Portada creada:"
           ls -lh work/webp/cover.webp
 
-      - name: Mostrar resumen
+      - name: Resumen
         id: resumen
         env:
-          R2_PATH: ${{ steps.destino.outputs.r2_path }}
-          MAGAZINE_PREFIX: ${{ inputs.magazine_prefix }}
+          R2_PATH: ${{ steps.metadata.outputs.r2_path }}
+          MAGAZINE_PREFIX: ${{ steps.metadata.outputs.magazine_prefix }}
         run: |
           pages=$(find work/webp -maxdepth 1 \
             -name "${MAGAZINE_PREFIX}-*.webp" \
@@ -238,7 +345,7 @@ jobs:
 
       - name: Subir revista a R2
         env:
-          R2_PATH: ${{ steps.destino.outputs.r2_path }}
+          R2_PATH: ${{ steps.metadata.outputs.r2_path }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
           rclone copy \
@@ -249,7 +356,7 @@ jobs:
 
       - name: Verificar R2
         env:
-          R2_PATH: ${{ steps.destino.outputs.r2_path }}
+          R2_PATH: ${{ steps.metadata.outputs.r2_path }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           EXPECTED: ${{ steps.resumen.outputs.expected }}
         run: |
@@ -271,6 +378,138 @@ jobs:
             exit 1
           fi
 
-          echo "========================================"
-          echo "IMPORTACIÓN DE PRUEBA COMPLETADA"
-          echo "========================================"
+          echo "Verificación R2 correcta."
+
+      - name: Actualizar catalogo.json
+        env:
+          EDITORIAL: ${{ inputs.editorial }}
+          COLLECTION: ${{ inputs.collection }}
+          ISSUE: ${{ inputs.issue }}
+          NAME: ${{ inputs.name }}
+          PDF_R2_PATH: ${{ inputs.pdf_r2_path }}
+          MAGAZINE_PREFIX: ${{ steps.metadata.outputs.magazine_prefix }}
+          R2_PATH: ${{ steps.metadata.outputs.r2_path }}
+          PAGES: ${{ steps.resumen.outputs.pages }}
+        run: |
+          python3 <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          editorial = "${{ inputs.editorial }}"
+          collection = "${{ inputs.collection }}"
+          issue = "${{ inputs.issue }}"
+          name = "${{ inputs.name }}"
+          filename = Path("${{ inputs.pdf_r2_path }}").name
+          pages = int("${{ steps.resumen.outputs.pages }}")
+          prefix = "${{ steps.metadata.outputs.magazine_prefix }}"
+          r2_path = "${{ steps.metadata.outputs.r2_path }}"
+
+          catalog_path = Path("catalogo.json")
+
+          with open(catalog_path, "r", encoding="utf-8") as f:
+              catalog = json.load(f)
+
+          def matches(magazine):
+              return (
+                  str(magazine.get("editorial", "")).strip().casefold()
+                  == editorial.strip().casefold()
+                  and str(magazine.get("coleccion", "")).strip().casefold()
+                  == collection.strip().casefold()
+                  and str(magazine.get("numero", "")).strip().casefold()
+                  == issue.strip().casefold()
+                  and str(magazine.get("nombre", "")).strip().casefold()
+                  == name.strip().casefold()
+              )
+
+          existing = next(
+              (magazine for magazine in catalog if matches(magazine)),
+              None,
+          )
+
+          now = datetime.now(timezone.utc).astimezone().isoformat(
+              timespec="seconds"
+          )
+
+          if existing:
+              existing_r2 = existing.get("r2_path")
+
+              if existing_r2 and existing_r2 != r2_path:
+                  raise RuntimeError(
+                      "Ya existe una revista con estos datos y tiene otra "
+                      f"ruta R2: {existing_r2}"
+                  )
+
+              existing["paginas"] = pages
+              existing["r2_path"] = r2_path
+              existing["prefix"] = prefix
+              existing["cover"] = "cover.webp"
+              existing["fecha_importacion"] = now
+
+              if not existing.get("ruta"):
+                  existing["ruta"] = f"Remoto/{editorial}/{collection}/{filename}"
+
+              if not existing.get("archivo"):
+                  existing["archivo"] = filename
+
+              existing["estado"] = "OK"
+
+              result = "registro existente"
+
+          else:
+              magazine = {
+                  "estado": "OK",
+                  "editorial": editorial,
+                  "coleccion": collection,
+                  "numero": issue,
+                  "nombre": name,
+                  "archivo": filename,
+                  "ruta": f"Remoto/{editorial}/{collection}/{filename}",
+                  "paginas": pages,
+                  "r2_path": r2_path,
+                  "prefix": prefix,
+                  "cover": "cover.webp",
+                  "fecha_importacion": now,
+                  "origen": "remoto",
+              }
+
+              catalog.append(magazine)
+              result = "nueva revista"
+
+          temp_path = catalog_path.with_suffix(".json.tmp")
+
+          with open(temp_path, "w", encoding="utf-8") as f:
+              json.dump(
+                  catalog,
+                  f,
+                  ensure_ascii=False,
+                  indent=2,
+              )
+              f.write("\n")
+
+          temp_path.replace(catalog_path)
+
+          print(f"CATÁLOGO ACTUALIZADO: {result}")
+          PY
+
+          echo "catalogo.json actualizado."
+
+      - name: Revisar cambios del catálogo
+        run: |
+          git status --short
+          git diff -- catalogo.json
+
+      - name: Guardar catálogo en GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add catalogo.json
+
+          if git diff --cached --quiet; then
+            echo "No hay cambios en catalogo.json."
+            exit 0
+          fi
+
+          git commit -m "Importa revista desde hemeroteca"
+          git push
