@@ -273,6 +273,13 @@ function ImportMagazine({ onBack }: { onBack: () => void }) {
             ? {
                 ...current,
                 status: statusData.status,
+                magazine: current.magazine
+                  ? {
+                      ...current.magazine,
+                      pages: statusData.pages ?? current.magazine.pages,
+                      r2Path: statusData.r2Path ?? current.magazine.r2Path,
+                    }
+                  : current.magazine,
               }
             : current,
         );
