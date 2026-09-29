@@ -114,9 +114,6 @@ jobs:
           PDF_R2_PATH: ${{ inputs.pdf_r2_path }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          echo "Descargando:"
-          echo "$PDF_R2_PATH"
-
           rclone copy \
             "alpaca-r2:${R2_BUCKET}/${PDF_R2_PATH}" \
             work/pdf/
@@ -134,14 +131,14 @@ jobs:
             work/pdf/*.pdf \
             work/jpeg/page
 
-          total=$(find work/jpeg -name 'page-*.jpg' | wc -l)
+          pages=$(find work/jpeg -name 'page-*.jpg' | wc -l)
 
-          if [ "$total" -eq 0 ]; then
-            echo "ERROR: No se generaron JPEG."
+          if [ "$pages" -eq 0 ]; then
+            echo "ERROR: No se generaron páginas JPEG."
             exit 1
           fi
 
-          echo "JPEG generados: $total"
+          echo "Páginas JPEG: $pages"
 
       - name: JPEG → WebP
         env:
@@ -165,24 +162,34 @@ jobs:
           done
 
       - name: Crear thumbnails
+        env:
+          MAGAZINE_PREFIX: ${{ inputs.magazine_prefix }}
         run: |
-          for webp in work/webp/*.webp; do
-            filename=$(basename "$webp" .webp)
-            number="${filename##*-}"
+          total=$(find work/webp -maxdepth 1 -name "${MAGAZINE_PREFIX}-*.webp" | wc -l)
+          index=0
+
+          for webp in $(find work/webp -maxdepth 1 -name "${MAGAZINE_PREFIX}-*.webp" | sort); do
+            index=$((index + 1))
+
+            output=$(printf "work/webp/thumbs/%03d.webp" "$index")
 
             cwebp \
               -q 75 \
               -resize 320 0 \
               "$webp" \
-              -o "work/webp/thumbs/${number}.webp"
+              -o "$output"
+
+            echo "Thumbnail $index/$total: $(basename "$output")"
           done
 
-          echo "Thumbnails generados:"
-          find work/webp/thumbs -type f | wc -l
-
       - name: Crear portada
+        env:
+          MAGAZINE_PREFIX: ${{ inputs.magazine_prefix }}
         run: |
-          first_page=$(find work/webp -maxdepth 1 -name '*.webp' | sort | head -n 1)
+          first_page=$(find work/webp -maxdepth 1 \
+            -name "${MAGAZINE_PREFIX}-*.webp" \
+            | sort \
+            | head -n 1)
 
           if [ -z "$first_page" ]; then
             echo "ERROR: No existe ninguna página WebP."
@@ -195,23 +202,39 @@ jobs:
           ls -lh work/webp/cover.webp
 
       - name: Mostrar resumen
+        id: resumen
         env:
           R2_PATH: ${{ steps.destino.outputs.r2_path }}
+          MAGAZINE_PREFIX: ${{ inputs.magazine_prefix }}
         run: |
-          pages=$(find work/webp -maxdepth 1 -name '*.webp' | wc -l)
-          thumbs=$(find work/webp/thumbs -type f | wc -l)
+          pages=$(find work/webp -maxdepth 1 \
+            -name "${MAGAZINE_PREFIX}-*.webp" \
+            | wc -l)
+
+          thumbs=$(find work/webp/thumbs \
+            -type f \
+            -name '*.webp' \
+            | wc -l)
+
+          expected=$((pages * 2 + 1))
 
           echo "========================================"
           echo "RESUMEN"
           echo "========================================"
-          echo "Editorial: ${{ inputs.editorial }}"
-          echo "Colección: ${{ inputs.collection }}"
+          echo "Editorial:  ${{ inputs.editorial }}"
+          echo "Colección:  ${{ inputs.collection }}"
           echo "Número:     ${{ inputs.issue }}"
           echo "Nombre:     ${{ inputs.name }}"
           echo "Páginas:    $pages"
           echo "Thumbnails: $thumbs"
+          echo "Portada:    1"
+          echo "Esperados:  $expected"
           echo "R2:         $R2_PATH"
           echo "========================================"
+
+          echo "pages=$pages" >> "$GITHUB_OUTPUT"
+          echo "thumbs=$thumbs" >> "$GITHUB_OUTPUT"
+          echo "expected=$expected" >> "$GITHUB_OUTPUT"
 
       - name: Subir revista a R2
         env:
@@ -228,23 +251,23 @@ jobs:
         env:
           R2_PATH: ${{ steps.destino.outputs.r2_path }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          EXPECTED: ${{ steps.resumen.outputs.expected }}
         run: |
-          echo "Archivos encontrados en R2:"
-
-          rclone lsf \
-            "alpaca-r2:${R2_BUCKET}/${R2_PATH}/" \
-            --files-only \
-            --recursive
+          echo "========================================"
+          echo "VERIFICACIÓN R2"
+          echo "========================================"
 
           count=$(rclone lsf \
             "alpaca-r2:${R2_BUCKET}/${R2_PATH}/" \
             --files-only \
-            --recursive | wc -l)
+            --recursive \
+            | wc -l)
 
-          echo "Total de archivos: $count"
+          echo "Archivos encontrados: $count"
+          echo "Archivos esperados:   $EXPECTED"
 
-          if [ "$count" -lt 3 ]; then
-            echo "ERROR: La subida parece incompleta."
+          if [ "$count" -ne "$EXPECTED" ]; then
+            echo "ERROR: La cantidad de archivos no coincide."
             exit 1
           fi
 
