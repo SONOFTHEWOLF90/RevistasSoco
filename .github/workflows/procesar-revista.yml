@@ -1,20 +1,20 @@
-name: Prueba R2
+name: Procesar revista - prueba
 
 on:
   workflow_dispatch:
 
 jobs:
-  prueba-r2:
+  prueba-procesamiento:
     runs-on: ubuntu-latest
 
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Instalar rclone
+      - name: Instalar herramientas
         run: |
           sudo apt-get update
-          sudo apt-get install -y rclone
+          sudo apt-get install -y rclone poppler-utils webp
 
       - name: Configurar R2
         env:
@@ -34,12 +34,113 @@ jobs:
           no_check_bucket = true
           EOF
 
-      - name: Probar conexión con R2
-        env:
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      - name: Preparar carpetas
         run: |
-          echo "Probando conexión con Cloudflare R2..."
-          rclone lsf "alpaca-r2:${R2_BUCKET}" --max-depth 2
-          echo "================================"
-          echo "CONEXIÓN CON R2 CORRECTA"
-          echo "================================"
+          mkdir -p work/pdf
+          mkdir -p work/jpeg
+          mkdir -p work/webp/thumbs
+
+      - name: Descargar PDF desde R2
+        run: |
+          rclone copy \
+            "alpaca-r2:${{ secrets.R2_BUCKET }}/imports-test/prueba.pdf" \
+            work/pdf/
+
+          ls -lh work/pdf/
+
+      - name: PDF → JPEG
+        run: |
+          pdftoppm \
+            -cropbox \
+            -r 120 \
+            -jpeg \
+            -jpegopt quality=95 \
+            work/pdf/prueba.pdf \
+            work/jpeg/page
+
+          echo "JPEG generados:"
+          find work/jpeg -type f | wc -l
+
+      - name: JPEG → WebP
+        run: |
+          mkdir -p work/webp
+
+          total=$(find work/jpeg -name 'page-*.jpg' | wc -l)
+          index=0
+
+          for jpeg in work/jpeg/page-*.jpg; do
+            index=$((index + 1))
+
+            output=$(printf "work/webp/TEST-%03d.webp" "$index")
+
+            cwebp \
+              -q 85 \
+              -resize 1800 0 \
+              "$jpeg" \
+              -o "$output"
+
+            echo "WebP $index/$total: $output"
+          done
+
+      - name: Crear thumbnails
+        run: |
+          mkdir -p work/webp/thumbs
+
+          for webp in work/webp/TEST-*.webp; do
+            filename=$(basename "$webp" .webp)
+            number=${filename#TEST-}
+
+            cwebp \
+              -q 75 \
+              -resize 320 0 \
+              "$webp" \
+              -o "work/webp/thumbs/${number}.webp"
+          done
+
+      - name: Crear portada
+        run: |
+          first_page=$(find work/webp -maxdepth 1 -name 'TEST-*.webp' | sort | head -n 1)
+
+          cp "$first_page" work/webp/cover.webp
+
+          echo "Portada:"
+          ls -lh work/webp/cover.webp
+
+      - name: Mostrar resultado local
+        run: |
+          echo "========================================"
+          echo "RESULTADO DEL PROCESAMIENTO"
+          echo "========================================"
+
+          echo "Páginas WebP:"
+          find work/webp -maxdepth 1 -name 'TEST-*.webp' | wc -l
+
+          echo "Thumbnails:"
+          find work/webp/thumbs -type f | wc -l
+
+          echo "Portada:"
+          ls -lh work/webp/cover.webp
+
+          echo "Tamaño total:"
+          du -sh work/webp/
+
+      - name: Subir resultado a R2
+        run: |
+          rclone copy \
+            work/webp/ \
+            "alpaca-r2:${{ secrets.R2_BUCKET }}/imports-test/resultado/"
+
+      - name: Verificar resultado en R2
+        run: |
+          echo "========================================"
+          echo "ARCHIVOS EN R2"
+          echo "========================================"
+
+          rclone lsf \
+            "alpaca-r2:${{ secrets.R2_BUCKET }}/imports-test/resultado/" \
+            --files-only \
+            --recursive
+
+          echo "========================================"
+          echo "PROCESAMIENTO COMPLETADO"
+          echo "========================================"
