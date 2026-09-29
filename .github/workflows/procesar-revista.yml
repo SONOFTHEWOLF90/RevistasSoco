@@ -1,0 +1,32 @@
+name: Procesar revista - prueba
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prueba-procesamiento:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar herramientas PDF y WebP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils webp
+
+      - name: Verificar herramientas
+        run: |
+          pdftoppm -v
+          cwebp -version
+
+      - name: Mostrar entorno
+        run: |
+          echo "GitHub Actions está funcionando correctamente"
+          echo "CPU:"
+          nproc
+          echo "Memoria:"
+          free -h
+          echo "Disco:"
+          df -h
