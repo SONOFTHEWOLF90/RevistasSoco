@@ -3163,5 +3163,20 @@
     "cover": "cover.webp",
     "fecha_importacion": "2026-09-29T17:37:27+00:00",
     "origen": "remoto"
+  },
+  {
+    "estado": "OK",
+    "editorial": "Lana Grossa",
+    "coleccion": "Prueba Web",
+    "numero": "1",
+    "nombre": "Prueba Web",
+    "archivo": "1790705376616-2a949fb6-addf-4163-a513-fb654a6c09bc-prueba.pdf",
+    "ruta": "Remoto/Lana Grossa/Prueba Web/1790705376616-2a949fb6-addf-4163-a513-fb654a6c09bc-prueba.pdf",
+    "paginas": 3,
+    "r2_path": "magazines/lana-grossa/prueba-web/1",
+    "prefix": "1790705376616-2a949fb6-addf-4163-a513-fb654a6c09bc-prueba",
+    "cover": "cover.webp",
+    "fecha_importacion": "2026-09-29T18:10:15+00:00",
+    "origen": "remoto"
   }
 ]
