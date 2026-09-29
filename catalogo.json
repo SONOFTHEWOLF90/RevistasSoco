@@ -3193,5 +3193,20 @@
     "cover": "cover.webp",
     "fecha_importacion": "2026-09-29T19:21:55+00:00",
     "origen": "remoto"
+  },
+  {
+    "estado": "OK",
+    "editorial": "Lana Grossa",
+    "coleccion": "Prueba Web",
+    "numero": "3",
+    "nombre": "Prueba Web",
+    "archivo": "LG.003 prueba.pdf",
+    "ruta": "Remoto/Lana Grossa/Prueba Web/LG.003 prueba.pdf",
+    "paginas": 3,
+    "r2_path": "magazines/lana-grossa/prueba-web/3",
+    "prefix": "1790721318160-63094154-76bd-44e1-a398-55df821700b4-LG.003_prueba",
+    "cover": "cover.webp",
+    "fecha_importacion": "2026-09-29T22:36:01+00:00",
+    "origen": "remoto"
   }
 ]
