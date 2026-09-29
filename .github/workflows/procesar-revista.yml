@@ -52,7 +52,9 @@ jobs:
       - name: Instalar herramientas
         run: |
           sudo apt-get update
-          sudo apt-get install -y rclone poppler-utils webp
+          sudo apt-get install -y poppler-utils webp
+
+          curl -fsSL https://rclone.org/install.sh | sudo bash
 
       - name: Configurar R2
         env:
