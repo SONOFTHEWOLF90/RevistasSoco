@@ -557,10 +557,20 @@ jobs:
             STATUS="failed"
           fi
 
+          if [ "$STATUS" = "completed" ]; then
+            PAGES="${{ steps.resumen.outputs.pages }}"
+            R2_PATH="${{ steps.metadata.outputs.r2_path }}"
+          else
+            PAGES=""
+            R2_PATH=""
+          fi
+
           cat > /tmp/import-status/status.json <<EOF
           {
             "status": "${STATUS}",
-            "importId": "${IMPORT_ID}"
+            "importId": "${IMPORT_ID}",
+            "pages": ${PAGES:-0},
+            "r2Path": "${R2_PATH}"
           }
           EOF
 
