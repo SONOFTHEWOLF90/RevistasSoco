@@ -1,44 +1,26 @@
 import { NextResponse } from "next/server";
-import { spawn } from "child_process";
-import { promises as fs } from "fs";
-import os from "os";
-import path from "path";
+import {
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export const runtime = "nodejs";
 
-const IMPORT_SCRIPT =
-  "/Users/superate/AlpacaWork/import-magazine-local.py";
+const r2 = new S3Client({
+  region: "auto",
+  endpoint: process.env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
 
-const TEMP_ROOT = path.join(
-  os.homedir(),
-  "AlpacaWork",
-  "import-temp-upload",
-);
+const BUCKET = process.env.R2_BUCKET!;
+const GITHUB_TOKEN = process.env.GITHUB_ACTIONS_TOKEN!;
 
-function createMagazinePrefix(
-  editorial: string,
-  collection: string,
-  issue: string,
-  file: string,
-) {
-  const filename = path.basename(file, path.extname(file));
-
-  if (
-    editorial.trim().toLowerCase() === "lang yarns" &&
-    collection.trim().toLowerCase() === "fam"
-  ) {
-    return `FAM-${issue.trim()}`;
-  }
-
-  if (
-    editorial.trim().toLowerCase() === "lana grossa" &&
-    collection.trim().toLowerCase() === "all seasons"
-  ) {
-    return `AS.${issue.trim().padStart(2, "0")}`;
-  }
-
-  return filename.replace(/-00$/i, "").trim();
-}
+const GITHUB_WORKFLOW =
+  "https://api.github.com/repos/SONOFTHEWOLF90/RevistasSoco/actions/workflows/procesar-revista.yml/dispatches";
 
 function sanitizeFilename(value: string) {
   return value
@@ -47,56 +29,56 @@ function sanitizeFilename(value: string) {
     .slice(0, 180);
 }
 
-function runPython(args: string[]) {
-  return new Promise<{
-    code: number | null;
-    stdout: string;
-    stderr: string;
-  }>((resolve) => {
-    const python = spawn("python3", [IMPORT_SCRIPT, ...args], {
-      cwd: "/Users/superate/AlpacaWork",
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    python.stdout.on("data", (data) => {
-      const text = data.toString();
-
-      stdout += text;
-
-      console.log("[IMPORTADOR]", text);
-    });
-
-    python.stderr.on("data", (data) => {
-      const text = data.toString();
-
-      stderr += text;
-
-      console.error("[IMPORTADOR ERROR]", text);
-    });
-
-    python.on("close", (code) => {
-      resolve({
-        code,
-        stdout,
-        stderr,
-      });
-    });
-  });
-}
-
 export async function POST(request: Request) {
-  let temporaryPdf = "";
-
   try {
+    // --------------------------------------------------------
+    // VALIDAR VARIABLES DE ENTORNO
+    // --------------------------------------------------------
+
+    if (
+      !process.env.R2_ENDPOINT ||
+      !process.env.R2_ACCESS_KEY_ID ||
+      !process.env.R2_SECRET_ACCESS_KEY ||
+      !process.env.R2_BUCKET
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Faltan las variables de conexión con Cloudflare R2.",
+        },
+        { status: 500 },
+      );
+    }
+
+    if (!GITHUB_TOKEN) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Falta GITHUB_ACTIONS_TOKEN.",
+        },
+        { status: 500 },
+      );
+    }
+
+    // --------------------------------------------------------
+    // LEER FORMULARIO
+    // --------------------------------------------------------
+
     const formData = await request.formData();
 
     const pdf = formData.get("pdf");
-    const editorial = String(formData.get("editorial") || "").trim();
-    const collection = String(formData.get("collection") || "").trim();
-    const issue = String(formData.get("issue") || "").trim();
-    const name = String(formData.get("name") || "").trim();
+    const editorial = String(
+      formData.get("editorial") || "",
+    ).trim();
+    const collection = String(
+      formData.get("collection") || "",
+    ).trim();
+    const issue = String(
+      formData.get("issue") || "",
+    ).trim();
+    const name = String(
+      formData.get("name") || "",
+    ).trim();
 
     // --------------------------------------------------------
     // VALIDACIÓN
@@ -163,114 +145,166 @@ export async function POST(request: Request) {
     }
 
     // --------------------------------------------------------
-    // DIRECTORIO TEMPORAL
+    // NOMBRE TEMPORAL DEL PDF EN R2
     // --------------------------------------------------------
-
-    await fs.mkdir(TEMP_ROOT, {
-      recursive: true,
-    });
 
     const safeFilename = sanitizeFilename(pdf.name);
 
-    const uniqueName = `${Date.now()}-${crypto.randomUUID()}-${safeFilename}`;
-
-    temporaryPdf = path.join(TEMP_ROOT, uniqueName);
-
-    // --------------------------------------------------------
-    // GUARDAR PDF TEMPORAL
-    // --------------------------------------------------------
-
-    const arrayBuffer = await pdf.arrayBuffer();
-
-    await fs.writeFile(
-      temporaryPdf,
-      Buffer.from(arrayBuffer),
-    );
+    const pdfR2Path =
+      `imports/${Date.now()}-${crypto.randomUUID()}-${safeFilename}`;
 
     console.log("");
     console.log("========================================");
-    console.log("IMPORTACIÓN LOCAL");
+    console.log("IMPORTADOR REMOTO");
     console.log("========================================");
-    console.log("PDF:", temporaryPdf);
+    console.log("PDF:", pdf.name);
+    console.log("R2 temporal:", pdfR2Path);
     console.log("Editorial:", editorial);
     console.log("Colección:", collection);
     console.log("Número:", issue);
     console.log("Nombre:", name);
 
     // --------------------------------------------------------
-    // PREFIJO
+    // GENERAR URL FIRMADA PARA SUBIR EL PDF
     // --------------------------------------------------------
 
-    const magazinePrefix = createMagazinePrefix(
-      editorial,
-      collection,
-      issue,
-      pdf.name,
+    const command = new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: pdfR2Path,
+      ContentType: "application/pdf",
+    });
+
+    const uploadUrl = await getSignedUrl(
+      r2,
+      command,
+      {
+        expiresIn: 600,
+      },
     );
 
-    console.log("Prefijo:", magazinePrefix);
-
     // --------------------------------------------------------
-    // EJECUTAR PYTHON
+    // SUBIR PDF A R2
     // --------------------------------------------------------
 
-    const result = await runPython([
-      temporaryPdf,
-      editorial,
-      collection,
-      issue,
-      name,
-      magazinePrefix,
-    ]);
+    const pdfBuffer = Buffer.from(
+      await pdf.arrayBuffer(),
+    );
 
-    if (result.code !== 0) {
-      console.error(result.stderr);
+    const uploadResponse = await fetch(
+      uploadUrl,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/pdf",
+        },
+        body: pdfBuffer,
+      },
+    );
+
+    if (!uploadResponse.ok) {
+      const errorText =
+        await uploadResponse.text();
+
+      console.error(
+        "Error subiendo PDF a R2:",
+        errorText,
+      );
 
       return NextResponse.json(
         {
           success: false,
           error:
-            result.stderr.trim() ||
-            result.stdout.trim() ||
-            "El procesador terminó con un error.",
-          output: result.stdout,
+            "No se pudo subir el PDF a Cloudflare R2.",
         },
         { status: 500 },
       );
     }
 
-    // --------------------------------------------------------
-    // INTENTAR EXTRAER INFORMACIÓN DEL RESULTADO
-    // --------------------------------------------------------
-
-    const r2Match = result.stdout.match(
-      /R2:\s+(.+)/,
+    console.log(
+      "PDF subido correctamente a R2.",
     );
 
-    const pagesMatch = result.stdout.match(
-      /Páginas:\s+(\d+)/,
+    // --------------------------------------------------------
+    // LANZAR GITHUB ACTIONS
+    // --------------------------------------------------------
+
+    const githubResponse = await fetch(
+      GITHUB_WORKFLOW,
+      {
+        method: "POST",
+        headers: {
+          Accept:
+            "application/vnd.github+json",
+          Authorization:
+            `Bearer ${GITHUB_TOKEN}`,
+          "X-GitHub-Api-Version":
+            "2022-11-28",
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          ref: "main",
+          inputs: {
+            pdf_r2_path: pdfR2Path,
+            pdf_filename: pdf.name,
+            editorial,
+            collection,
+            issue,
+            name,
+          },
+        }),
+      },
     );
 
-    const r2Path = r2Match?.[1]?.trim() || "";
+    if (!githubResponse.ok) {
+      const errorText =
+        await githubResponse.text();
 
-    const pages = pagesMatch
-      ? Number(pagesMatch[1])
-      : 0;
+      console.error(
+        "Error GitHub Actions:",
+        errorText,
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "El PDF se subió a R2, pero no se pudo iniciar el procesamiento.",
+          pdfR2Path,
+        },
+        { status: 500 },
+      );
+    }
+
+    console.log(
+      "GitHub Actions recibió la orden.",
+    );
+
+    // --------------------------------------------------------
+    // RESPUESTA
+    // --------------------------------------------------------
 
     return NextResponse.json({
       success: true,
-      output: result.stdout,
+      status: "queued",
+      message:
+        "La revista fue enviada correctamente al procesamiento remoto.",
+      output:
+        "PDF subido a R2 y GitHub Actions iniciado.",
       magazine: {
         editorial,
         collection,
         issue,
         name,
-        pages,
-        r2Path,
+        file: pdf.name,
+        pdfR2Path,
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error(
+      "Error en importador remoto:",
+      error,
+    );
 
     return NextResponse.json(
       {
@@ -282,23 +316,5 @@ export async function POST(request: Request) {
       },
       { status: 500 },
     );
-  } finally {
-    // --------------------------------------------------------
-    // ELIMINAR PDF TEMPORAL
-    // --------------------------------------------------------
-
-    if (temporaryPdf) {
-      try {
-        await fs.unlink(temporaryPdf);
-
-        console.log(
-          "PDF temporal eliminado:",
-          temporaryPdf,
-        );
-      } catch {
-        // No interrumpimos la respuesta si el temporal
-        // ya no existe o no puede eliminarse.
-      }
-    }
   }
 }

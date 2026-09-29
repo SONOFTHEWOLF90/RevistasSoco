@@ -8,6 +8,11 @@ on:
         required: true
         type: string
 
+      pdf_filename:
+        description: "Nombre original del PDF"
+        required: true
+        type: string
+
       editorial:
         description: "Editorial"
         required: true
@@ -400,7 +405,7 @@ jobs:
           collection = "${{ inputs.collection }}"
           issue = "${{ inputs.issue }}"
           name = "${{ inputs.name }}"
-          filename = Path("${{ inputs.pdf_r2_path }}").name
+          filename = "${{ inputs.pdf_filename }}"
           pages = int("${{ steps.resumen.outputs.pages }}")
           prefix = "${{ steps.metadata.outputs.magazine_prefix }}"
           r2_path = "${{ steps.metadata.outputs.r2_path }}"
