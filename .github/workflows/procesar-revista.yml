@@ -1,10 +1,40 @@
-name: Procesar revista - prueba
+name: Procesar revista
 
 on:
   workflow_dispatch:
+    inputs:
+      pdf_r2_path:
+        description: "Ruta del PDF en R2"
+        required: true
+        type: string
+
+      editorial:
+        description: "Editorial"
+        required: true
+        type: string
+
+      collection:
+        description: "Colección"
+        required: true
+        type: string
+
+      issue:
+        description: "Número"
+        required: true
+        type: string
+
+      name:
+        description: "Nombre de la revista"
+        required: true
+        type: string
+
+      magazine_prefix:
+        description: "Prefijo de páginas"
+        required: true
+        type: string
 
 jobs:
-  prueba-procesamiento:
+  procesar:
     runs-on: ubuntu-latest
 
     steps:
@@ -34,113 +64,61 @@ jobs:
           no_check_bucket = true
           EOF
 
-      - name: Preparar carpetas
-        run: |
-          mkdir -p work/pdf
-          mkdir -p work/jpeg
-          mkdir -p work/webp/thumbs
-
-      - name: Descargar PDF desde R2
-        run: |
-          rclone copy \
-            "alpaca-r2:${{ secrets.R2_BUCKET }}/imports-test/prueba.pdf" \
-            work/pdf/
-
-          ls -lh work/pdf/
-
-      - name: PDF → JPEG
-        run: |
-          pdftoppm \
-            -cropbox \
-            -r 120 \
-            -jpeg \
-            -jpegopt quality=95 \
-            work/pdf/prueba.pdf \
-            work/jpeg/page
-
-          echo "JPEG generados:"
-          find work/jpeg -type f | wc -l
-
-      - name: JPEG → WebP
-        run: |
-          mkdir -p work/webp
-
-          total=$(find work/jpeg -name 'page-*.jpg' | wc -l)
-          index=0
-
-          for jpeg in work/jpeg/page-*.jpg; do
-            index=$((index + 1))
-
-            output=$(printf "work/webp/TEST-%03d.webp" "$index")
-
-            cwebp \
-              -q 85 \
-              -resize 1800 0 \
-              "$jpeg" \
-              -o "$output"
-
-            echo "WebP $index/$total: $output"
-          done
-
-      - name: Crear thumbnails
-        run: |
-          mkdir -p work/webp/thumbs
-
-          for webp in work/webp/TEST-*.webp; do
-            filename=$(basename "$webp" .webp)
-            number=${filename#TEST-}
-
-            cwebp \
-              -q 75 \
-              -resize 320 0 \
-              "$webp" \
-              -o "work/webp/thumbs/${number}.webp"
-          done
-
-      - name: Crear portada
-        run: |
-          first_page=$(find work/webp -maxdepth 1 -name 'TEST-*.webp' | sort | head -n 1)
-
-          cp "$first_page" work/webp/cover.webp
-
-          echo "Portada:"
-          ls -lh work/webp/cover.webp
-
-      - name: Mostrar resultado local
+      - name: Mostrar datos recibidos
         run: |
           echo "========================================"
-          echo "RESULTADO DEL PROCESAMIENTO"
+          echo "DATOS DE LA REVISTA"
+          echo "========================================"
+          echo "PDF:        ${{ inputs.pdf_r2_path }}"
+          echo "Editorial:  ${{ inputs.editorial }}"
+          echo "Colección:  ${{ inputs.collection }}"
+          echo "Número:     ${{ inputs.issue }}"
+          echo "Nombre:     ${{ inputs.name }}"
+          echo "Prefijo:    ${{ inputs.magazine_prefix }}"
           echo "========================================"
 
-          echo "Páginas WebP:"
-          find work/webp -maxdepth 1 -name 'TEST-*.webp' | wc -l
-
-          echo "Thumbnails:"
-          find work/webp/thumbs -type f | wc -l
-
-          echo "Portada:"
-          ls -lh work/webp/cover.webp
-
-          echo "Tamaño total:"
-          du -sh work/webp/
-
-      - name: Subir resultado a R2
+      - name: Crear destino R2
+        id: destino
+        env:
+          EDITORIAL: ${{ inputs.editorial }}
+          COLLECTION: ${{ inputs.collection }}
+          ISSUE: ${{ inputs.issue }}
+          NAME: ${{ inputs.name }}
         run: |
-          rclone copy \
-            work/webp/ \
-            "alpaca-r2:${{ secrets.R2_BUCKET }}/imports-test/resultado/"
+          slugify() {
+            echo "$1" \
+              | iconv -f UTF-8 -t ASCII//TRANSLIT \
+              | tr '[:upper:]' '[:lower:]' \
+              | sed 's/[^a-z0-9]/-/g' \
+              | sed 's/-\+/-/g' \
+              | sed 's/^-//' \
+              | sed 's/-$//'
+          }
 
-      - name: Verificar resultado en R2
+          editorial_slug=$(slugify "$EDITORIAL")
+          collection_slug=$(slugify "$COLLECTION")
+          issue_slug=$(slugify "$ISSUE")
+          name_slug=$(slugify "$NAME")
+
+          base="${issue_slug}-${name_slug}"
+
+          if [ -z "$base" ]; then
+            base="$issue_slug"
+          fi
+
+          r2_path="magazines/${editorial_slug}/${collection_slug}/${base}"
+
+          echo "r2_path=$r2_path" >> "$GITHUB_OUTPUT"
+
+          echo "Destino R2:"
+          echo "$r2_path"
+
+      - name: Resultado
+        env:
+          R2_PATH: ${{ steps.destino.outputs.r2_path }}
         run: |
           echo "========================================"
-          echo "ARCHIVOS EN R2"
+          echo "DESTINO CALCULADO"
           echo "========================================"
-
-          rclone lsf \
-            "alpaca-r2:${{ secrets.R2_BUCKET }}/imports-test/resultado/" \
-            --files-only \
-            --recursive
-
-          echo "========================================"
-          echo "PROCESAMIENTO COMPLETADO"
+          echo "$R2_PATH"
           echo "========================================"
