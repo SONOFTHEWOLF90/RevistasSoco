@@ -1,32 +1,45 @@
-name: Procesar revista - prueba
+name: Prueba R2
 
 on:
   workflow_dispatch:
 
 jobs:
-  prueba-procesamiento:
+  prueba-r2:
     runs-on: ubuntu-latest
 
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Instalar herramientas PDF y WebP
+      - name: Instalar rclone
         run: |
           sudo apt-get update
-          sudo apt-get install -y poppler-utils webp
+          sudo apt-get install -y rclone
 
-      - name: Verificar herramientas
+      - name: Configurar R2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
         run: |
-          pdftoppm -v
-          cwebp -version
+          mkdir -p ~/.config/rclone
 
-      - name: Mostrar entorno
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [alpaca-r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${R2_ACCESS_KEY_ID}
+          secret_access_key = ${R2_SECRET_ACCESS_KEY}
+          endpoint = ${R2_ENDPOINT}
+          no_check_bucket = true
+          EOF
+
+      - name: Probar conexión con R2
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          echo "GitHub Actions está funcionando correctamente"
-          echo "CPU:"
-          nproc
-          echo "Memoria:"
-          free -h
-          echo "Disco:"
-          df -h
+          echo "Probando conexión con Cloudflare R2..."
+          rclone lsf "alpaca-r2:${R2_BUCKET}" --max-depth 2
+          echo "================================"
+          echo "CONEXIÓN CON R2 CORRECTA"
+          echo "================================"
