@@ -18,8 +18,10 @@ type Magazine = {
 
 type ImportResult = {
   success: boolean;
+  status?: "queued" | "processing" | "completed" | "failed";
   error?: string;
   output?: string;
+  importId?: string;
   magazine?: {
     editorial: string;
     collection: string;
@@ -238,6 +240,53 @@ function ImportMagazine({ onBack }: { onBack: () => void }) {
       }
 
       setResult(data);
+
+      if (!data.importId) {
+        throw new Error(
+          "La importación fue enviada, pero no se recibió su identificador.",
+        );
+      }
+
+      let finished = false;
+
+      while (!finished) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+
+        const statusResponse = await fetch(
+          `/api/importador/estado?importId=${encodeURIComponent(data.importId)}`,
+          {
+            cache: "no-store",
+          },
+        );
+
+        const statusData = await statusResponse.json();
+
+        if (!statusResponse.ok || !statusData.success) {
+          throw new Error(
+            statusData.error ||
+              "No se pudo consultar el estado de la importación.",
+          );
+        }
+
+        setResult((current) =>
+          current
+            ? {
+                ...current,
+                status: statusData.status,
+              }
+            : current,
+        );
+
+        if (statusData.status === "completed") {
+          finished = true;
+        }
+
+        if (statusData.status === "failed") {
+          throw new Error(
+            "La importación terminó con errores. Revisa GitHub Actions para ver el detalle.",
+          );
+        }
+      }
     } catch (error) {
       setError(
         error instanceof Error
@@ -251,7 +300,7 @@ function ImportMagazine({ onBack }: { onBack: () => void }) {
 
   return (
     <section>
-      <BackButton onClick={onBack} />
+      <BackButton onClick={onBack} disabled={importing} />
 
       <div className="mt-8 max-w-3xl">
         <p className="text-[9px] uppercase tracking-[0.25em] text-[#999999]">
@@ -322,27 +371,88 @@ function ImportMagazine({ onBack }: { onBack: () => void }) {
             </div>
           )}
 
-          {result?.success && result.magazine && (
+          {result?.success && result.status && (
             <div className="mx-6 mb-6 border border-[#d8d8d8] bg-[#fafafa] px-5 py-5">
-              <p className="text-[9px] uppercase tracking-[0.2em] text-[#999999]">
-                Importación completada
-              </p>
+              {result.status === "queued" && (
+                <>
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-[#999999]">
+                    Importación en cola
+                  </p>
 
-              <p className="mt-2 text-lg font-semibold">
-                {result.magazine.name}
-              </p>
+                  <p className="mt-2 text-lg font-semibold">
+                    Revista enviada correctamente
+                  </p>
 
-              <p className="mt-1 text-sm text-[#777777]">
-                {result.magazine.editorial} · {result.magazine.collection} · Nº{" "}
-                {result.magazine.issue}
-              </p>
+                  <p className="mt-2 text-sm leading-6 text-[#777777]">
+                    La revista está esperando para comenzar el procesamiento.
+                  </p>
 
-              <p className="mt-3 text-xs text-[#888888]">
-                {result.magazine.pages} páginas · R2: {result.magazine.r2Path}
-              </p>
+                  <p className="mt-4 text-xs font-medium text-[#555555]">
+                    No vuelvas a enviar esta revista.
+                  </p>
+                </>
+              )}
+
+              {result.status === "processing" && (
+                <>
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-[#999999]">
+                    Procesando revista
+                  </p>
+
+                  <p className="mt-2 text-lg font-semibold">
+                    El procesamiento está en curso
+                  </p>
+
+                  <p className="mt-2 text-sm leading-6 text-[#777777]">
+                    Estamos convirtiendo las páginas y preparando los archivos.
+                  </p>
+
+                  <p className="mt-4 text-xs font-medium text-[#555555]">
+                    No vuelvas a enviar esta revista.
+                  </p>
+                </>
+              )}
+
+              {result.status === "completed" && result.magazine && (
+                <>
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-[#999999]">
+                    Importación completada
+                  </p>
+
+                  <p className="mt-2 text-lg font-semibold">
+                    {result.magazine.name}
+                  </p>
+
+                  <p className="mt-1 text-sm text-[#777777]">
+                    {result.magazine.editorial} · {result.magazine.collection} ·
+                    Nº {result.magazine.issue}
+                  </p>
+
+                  <p className="mt-3 text-xs text-[#888888]">
+                    {result.magazine.pages} páginas · R2:{" "}
+                    {result.magazine.r2Path}
+                  </p>
+                </>
+              )}
+
+              {result.status === "failed" && (
+                <>
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-[#805555]">
+                    Importación fallida
+                  </p>
+
+                  <p className="mt-2 text-lg font-semibold">
+                    No se pudo completar la revista
+                  </p>
+
+                  <p className="mt-2 text-sm leading-6 text-[#777777]">
+                    El procesamiento terminó con errores. Puedes revisar el
+                    detalle en GitHub Actions.
+                  </p>
+                </>
+              )}
             </div>
           )}
-
           <div className="flex flex-col gap-3 border-t border-[#e5e5e5] bg-[#fafafa] p-6 sm:flex-row sm:justify-end">
             <button
               type="button"
@@ -751,110 +861,123 @@ function EditMagazine({ onBack }: { onBack: () => void }) {
                       ANALIZAR PDF
                     </button>
                     {replacementPages !== null && (
-  <div className="mt-4 border border-[#dedede] bg-[#f7f7f7] p-4">
-    <p className="text-[9px] uppercase tracking-[0.2em] text-[#999999]">
-      Nuevo PDF
-    </p>
+                      <div className="mt-4 border border-[#dedede] bg-[#f7f7f7] p-4">
+                        <p className="text-[9px] uppercase tracking-[0.2em] text-[#999999]">
+                          Nuevo PDF
+                        </p>
 
-    <p className="mt-2 text-sm font-medium text-[#222222]">
-      {replacementPages} páginas
-    </p>
+                        <p className="mt-2 text-sm font-medium text-[#222222]">
+                          {replacementPages} páginas
+                        </p>
 
-    <p className="mt-1 text-xs text-[#777777]">
-      La revista actual tiene {selected?.pages ?? 0} páginas.
-    </p>
+                        <p className="mt-1 text-xs text-[#777777]">
+                          La revista actual tiene {selected?.pages ?? 0}{" "}
+                          páginas.
+                        </p>
 
-    <p className="mt-3 text-xs leading-5 text-[#777777]">
-      El reemplazo conservará la misma revista y su ubicación en el catálogo.
-    </p>
+                        <p className="mt-3 text-xs leading-5 text-[#777777]">
+                          El reemplazo conservará la misma revista y su
+                          ubicación en el catálogo.
+                        </p>
 
-    <button
-      type="button"
-      disabled={replacing}
-      onClick={async () => {
-        if (!selected || !replacementPdf || replacementPages === null) {
-          setError("Selecciona y analiza un PDF antes de confirmar.");
-          return;
-        }
+                        <button
+                          type="button"
+                          disabled={replacing}
+                          onClick={async () => {
+                            if (
+                              !selected ||
+                              !replacementPdf ||
+                              replacementPages === null
+                            ) {
+                              setError(
+                                "Selecciona y analiza un PDF antes de confirmar.",
+                              );
+                              return;
+                            }
 
-        const confirmed = window.confirm(
-          `Vas a reemplazar el contenido de ${selected.name} (${selected.pages ?? 0} páginas) por ${replacementPages} páginas.\\n\\nSe hará un respaldo de R2 antes de reemplazar el contenido.\\n\\n¿Deseas continuar?`,
-        );
+                            const confirmed = window.confirm(
+                              `Vas a reemplazar el contenido de ${selected.name} (${selected.pages ?? 0} páginas) por ${replacementPages} páginas.\\n\\nSe hará un respaldo de R2 antes de reemplazar el contenido.\\n\\n¿Deseas continuar?`,
+                            );
 
-        if (!confirmed) {
-          return;
-        }
+                            if (!confirmed) {
+                              return;
+                            }
 
-        setReplacing(true);
-        setError("");
-        setMessage("");
+                            setReplacing(true);
+                            setError("");
+                            setMessage("");
 
-        try {
-          const formData = new FormData();
-          formData.append("pdf", replacementPdf);
-          formData.append("r2Path", selected.r2Path ?? "");
-          formData.append("expectedPages", String(replacementPages));
+                            try {
+                              const formData = new FormData();
+                              formData.append("pdf", replacementPdf);
+                              formData.append("r2Path", selected.r2Path ?? "");
+                              formData.append(
+                                "expectedPages",
+                                String(replacementPages),
+                              );
 
-          const response = await fetch(
-            "/api/importador/reemplazar",
-            {
-              method: "POST",
-              body: formData,
-            },
-          );
+                              const response = await fetch(
+                                "/api/importador/reemplazar",
+                                {
+                                  method: "POST",
+                                  body: formData,
+                                },
+                              );
 
-          const data = await response.json();
+                              const data = await response.json();
 
-          if (!response.ok || !data.success) {
-            throw new Error(
-              data.error || "No se pudo reemplazar el PDF.",
-            );
-          }
+                              if (!response.ok || !data.success) {
+                                throw new Error(
+                                  data.error || "No se pudo reemplazar el PDF.",
+                                );
+                              }
 
-          setMessage(
-            `Reemplazo completado correctamente: ${data.pages} páginas. El respaldo quedó en ${data.backup ?? "la carpeta de respaldos"}.`,
-          );
+                              setMessage(
+                                `Reemplazo completado correctamente: ${data.pages} páginas. El respaldo quedó en ${data.backup ?? "la carpeta de respaldos"}.`,
+                              );
 
-          setSelected((current) =>
-            current
-              ? { ...current, pages: data.pages }
-              : current,
-          );
+                              setSelected((current) =>
+                                current
+                                  ? { ...current, pages: data.pages }
+                                  : current,
+                              );
 
-          setMagazines((current) =>
-            current.map((magazine) =>
-              magazine.id === selected.id
-                ? { ...magazine, pages: data.pages }
-                : magazine,
-            ),
-          );
+                              setMagazines((current) =>
+                                current.map((magazine) =>
+                                  magazine.id === selected.id
+                                    ? { ...magazine, pages: data.pages }
+                                    : magazine,
+                                ),
+                              );
 
-          setReplacementPdf(null);
-          setReplacementPages(null);
+                              setReplacementPdf(null);
+                              setReplacementPages(null);
 
-          const input = document.getElementById(
-            "replace-pdf-input",
-          ) as HTMLInputElement | null;
+                              const input = document.getElementById(
+                                "replace-pdf-input",
+                              ) as HTMLInputElement | null;
 
-          if (input) {
-            input.value = "";
-          }
-        } catch (error) {
-          setError(
-            error instanceof Error
-              ? error.message
-              : "No se pudo reemplazar el PDF.",
-          );
-        } finally {
-          setReplacing(false);
-        }
-      }}
-      className="mt-4 bg-[#222222] px-5 py-3 text-xs font-medium text-white hover:bg-[#444444] disabled:cursor-wait disabled:opacity-60"
-    >
-      {replacing ? "REEMPLAZANDO..." : "CONFIRMAR REEMPLAZO"}
-    </button>
-  </div>
-)}
+                              if (input) {
+                                input.value = "";
+                              }
+                            } catch (error) {
+                              setError(
+                                error instanceof Error
+                                  ? error.message
+                                  : "No se pudo reemplazar el PDF.",
+                              );
+                            } finally {
+                              setReplacing(false);
+                            }
+                          }}
+                          className="mt-4 bg-[#222222] px-5 py-3 text-xs font-medium text-white hover:bg-[#444444] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {replacing
+                            ? "REEMPLAZANDO..."
+                            : "CONFIRMAR REEMPLAZO"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -893,12 +1016,19 @@ function Field({
   );
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
+function BackButton({
+  onClick,
+  disabled = false,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#777777] hover:text-[#222222]"
+      disabled={disabled}
+      className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#777777] hover:text-[#222222] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[#777777]"
     >
       ← Volver
     </button>

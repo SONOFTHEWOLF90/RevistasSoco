@@ -33,6 +33,11 @@ on:
         required: true
         type: string
 
+      import_id:
+        description: "Identificador único de la importación"
+        required: true
+        type: string
+
 jobs:
   procesar:
     runs-on: ubuntu-latest
@@ -66,6 +71,24 @@ jobs:
           endpoint = ${R2_ENDPOINT}
           no_check_bucket = true
           EOF_RCLONE
+
+      - name: Marcar importación como procesando
+        env:
+          IMPORT_ID: ${{ inputs.import_id }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          mkdir -p /tmp/import-status
+
+          cat > /tmp/import-status/status.json <<EOF
+          {
+            "status": "processing",
+            "importId": "${IMPORT_ID}"
+          }
+          EOF
+
+          rclone copyto \
+            /tmp/import-status/status.json \
+            "alpaca-r2:${R2_BUCKET}/imports/status/${IMPORT_ID}.json"
 
       - name: Crear carpetas
         run: |
@@ -518,3 +541,29 @@ jobs:
 
           git commit -m "Importa revista desde hemeroteca"
           git push
+
+      - name: Marcar resultado de importación
+        if: always()
+        env:
+          IMPORT_ID: ${{ inputs.import_id }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          mkdir -p /tmp/import-status
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATUS="completed"
+          else
+            STATUS="failed"
+          fi
+
+          cat > /tmp/import-status/status.json <<EOF
+          {
+            "status": "${STATUS}",
+            "importId": "${IMPORT_ID}"
+          }
+          EOF
+
+          rclone copyto \
+            /tmp/import-status/status.json \
+            "alpaca-r2:${R2_BUCKET}/imports/status/${IMPORT_ID}.json"

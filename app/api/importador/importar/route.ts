@@ -150,6 +150,8 @@ export async function POST(request: Request) {
 
     const safeFilename = sanitizeFilename(pdf.name);
 
+    const importId = crypto.randomUUID();
+
     const pdfR2Path =
       `imports/${Date.now()}-${crypto.randomUUID()}-${safeFilename}`;
 
@@ -225,6 +227,28 @@ export async function POST(request: Request) {
     );
 
     // --------------------------------------------------------
+    // CREAR ESTADO INICIAL DE LA IMPORTACIÓN
+    // --------------------------------------------------------
+
+    const statusKey =
+      `imports/status/${importId}.json`;
+
+    await r2.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: statusKey,
+        Body: JSON.stringify(
+          {
+            status: "queued",
+            importId,
+          },
+          null,
+          2,
+        ),
+        ContentType: "application/json",
+      }),
+    );
+    // --------------------------------------------------------
     // LANZAR GITHUB ACTIONS
     // --------------------------------------------------------
 
@@ -251,6 +275,7 @@ export async function POST(request: Request) {
             collection,
             issue,
             name,
+            import_id: importId,
           },
         }),
       },
@@ -287,6 +312,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       status: "queued",
+      importId,
       message:
         "La revista fue enviada correctamente al procesamiento remoto.",
       output:
