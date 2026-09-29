@@ -574,6 +574,12 @@ jobs:
           }
           EOF
 
+          echo "========================================"
+          echo "STATUS FINAL"
+          echo "========================================"
+          cat /tmp/import-status/status.json
+          echo "========================================"
+
           rclone copyto \
             /tmp/import-status/status.json \
             "alpaca-r2:${R2_BUCKET}/imports/status/${IMPORT_ID}.json"
