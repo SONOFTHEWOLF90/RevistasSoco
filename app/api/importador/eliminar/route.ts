@@ -23,6 +23,11 @@ const r2 = new S3Client({
 
 const BUCKET = process.env.R2_BUCKET!;
 
+const GITHUB_TOKEN = process.env.GITHUB_ACTIONS_TOKEN;
+
+const GITHUB_WORKFLOW =
+  "https://api.github.com/repos/SONOFTHEWOLF90/RevistasSoco/actions/workflows/eliminar-revista.yml/dispatches";
+
 export async function POST(request: Request) {
   try {
     if (
@@ -140,18 +145,60 @@ export async function POST(request: Request) {
       );
     }
 
-    catalog.splice(index, 1);
+        if (!GITHUB_TOKEN) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "La revista fue eliminada de R2, pero falta GITHUB_ACTIONS_TOKEN para actualizar el catálogo.",
+        },
+        { status: 500 },
+      );
+    }
 
-    await fs.writeFile(
-      catalogPath,
-      JSON.stringify(catalog, null, 2) + "\n",
-      "utf8",
+    const githubResponse = await fetch(
+      GITHUB_WORKFLOW,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${GITHUB_TOKEN}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ref: "main",
+          inputs: {
+            r2_path: r2Path,
+          },
+        }),
+      },
     );
 
-    return NextResponse.json({
+    if (!githubResponse.ok) {
+      const errorText = await githubResponse.text();
+
+      console.error(
+        "Error GitHub Actions:",
+        errorText,
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "La revista fue eliminada de R2, pero no se pudo iniciar la actualización del catálogo.",
+          r2Path,
+        },
+        { status: 500 },
+      );
+    }
+
+       return NextResponse.json({
       success: true,
       deletedR2Objects: objects.length,
       r2Path,
+      catalogUpdate: "queued",
       magazine: {
         editorial: magazine.editorial,
         collection: magazine.coleccion,

@@ -1,0 +1,78 @@
+name: Eliminar revista
+
+on:
+  workflow_dispatch:
+    inputs:
+      r2_path:
+        description: "Ruta R2 de la revista"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  eliminar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Eliminar revista del catálogo
+        env:
+          R2_PATH: ${{ inputs.r2_path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          r2_path = os.environ["R2_PATH"].strip()
+
+          with open("catalogo.json", "r", encoding="utf-8") as f:
+              catalog = json.load(f)
+
+          index = next(
+              (
+                  i
+                  for i, magazine in enumerate(catalog)
+                  if str(magazine.get("r2_path", "")).strip() == r2_path
+              ),
+              None,
+          )
+
+          if index is None:
+              raise SystemExit(
+                  f"No se encontró una revista con r2_path: {r2_path}"
+              )
+
+          magazine = catalog[index]
+
+          print("Revista eliminada del catálogo:")
+          print(f"Editorial: {magazine.get('editorial')}")
+          print(f"Colección: {magazine.get('coleccion')}")
+          print(f"Número: {magazine.get('numero')}")
+          print(f"Nombre: {magazine.get('nombre')}")
+          print(f"R2: {magazine.get('r2_path')}")
+
+          catalog.pop(index)
+
+          with open("catalogo.json", "w", encoding="utf-8") as f:
+              json.dump(catalog, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          PY
+
+      - name: Guardar cambios
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add catalogo.json
+
+          if git diff --cached --quiet; then
+            echo "No hay cambios que guardar."
+            exit 0
+          fi
+
+          git commit -m "Elimina revista del catálogo"
+          git push
