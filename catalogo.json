@@ -3238,20 +3238,5 @@
     "cover": "cover.webp",
     "fecha_importacion": "2026-09-29T23:01:36+00:00",
     "origen": "remoto"
-  },
-  {
-    "estado": "OK",
-    "editorial": "Lana Grossa",
-    "coleccion": "Prueba Web",
-    "numero": "7",
-    "nombre": "Prueba Web",
-    "archivo": "lg.007 prueba.pdf",
-    "ruta": "Remoto/Lana Grossa/Prueba Web/lg.007 prueba.pdf",
-    "paginas": 3,
-    "r2_path": "magazines/lana-grossa/prueba-web/7",
-    "prefix": "1790725017888-d02cd82f-9395-42ef-83c3-08aef6e9837c-lg.007_prueba",
-    "cover": "cover.webp",
-    "fecha_importacion": "2026-09-29T23:37:28+00:00",
-    "origen": "remoto"
   }
 ]
