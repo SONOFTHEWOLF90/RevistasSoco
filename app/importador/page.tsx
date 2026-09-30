@@ -627,6 +627,55 @@ function EditMagazine({ onBack }: { onBack: () => void }) {
     }
   }
 
+  async function deleteMagazine() {
+    if (!selected) return;
+
+    const confirmed = window.confirm(
+      `¿Eliminar la revista "${selected.name}"?\n\nEsta acción eliminará la revista y sus archivos de R2.`,
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/importador/eliminar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: selected.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "No se pudo eliminar la revista.");
+      }
+
+      setMagazines((current) =>
+        current.filter((magazine) => magazine.id !== selected.id),
+      );
+
+      setSelected(null);
+      setEditorial("");
+      setCollection("");
+      setIssue("");
+      setName("");
+
+      setMessage("Revista eliminada correctamente.");
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo eliminar la revista.",
+      );
+    }
+  }
+
   return (
     <section>
       <BackButton onClick={onBack} />
@@ -759,14 +808,25 @@ function EditMagazine({ onBack }: { onBack: () => void }) {
               )}
 
               <div className="border-t border-[#e5e5e5] p-6">
-                <button
-                  type="button"
-                  onClick={saveChanges}
-                  disabled={saving}
-                  className="bg-[#222222] px-6 py-3 text-xs font-medium text-white hover:bg-[#444444] disabled:opacity-60"
-                >
-                  {saving ? "GUARDANDO..." : "GUARDAR CAMBIOS"}
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={saveChanges}
+                    disabled={saving}
+                    className="bg-[#222222] px-6 py-3 text-xs font-medium text-white hover:bg-[#444444] disabled:opacity-60"
+                  >
+                    {saving ? "GUARDANDO..." : "GUARDAR CAMBIOS"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={deleteMagazine}
+                    disabled={saving}
+                    className="border border-[#cc0000] px-6 py-3 text-xs font-medium text-[#cc0000] hover:bg-[#fff5f5] disabled:opacity-60"
+                  >
+                    ELIMINAR REVISTA
+                  </button>
+                </div>
               </div>
 
               <div className="border-t border-[#e5e5e5] bg-[#fafafa] p-6">
