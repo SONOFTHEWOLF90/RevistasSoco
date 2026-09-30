@@ -105,6 +105,8 @@ export default function Home() {
     "editoriales" | "colecciones" | null
   >(null);
 
+  const [mobileSearch, setMobileSearch] = useState(false);
+
   /*
    * Para "Últimas incorporaciones" usamos las revistas
    * más recientes según su número cuando existe.
@@ -140,12 +142,19 @@ export default function Home() {
           <button
             type="button"
             aria-label="Buscar revistas"
+            onClick={() => setMobileSearch((current) => !current)}
             className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dedede] bg-[#fafafa] text-lg text-[#555555] transition hover:bg-[#f5f5f5] sm:hidden"
           >
             ⌕
           </button>
         </div>
       </header>
+
+      {mobileSearch && (
+        <section className="border-b border-[#e5e5e5] bg-white px-4 py-3 sm:hidden">
+          <MagazineSearch />
+        </section>
+      )}
 
       {/* =====================================================
           ÍNDICE MÓVIL
@@ -425,17 +434,12 @@ export default function Home() {
                       return -1;
                     }
 
-                    return a.issue.localeCompare(
-                      b.issue,
-                      "es",
-                      { sensitivity: "base" },
-                    );
+                    return a.issue.localeCompare(b.issue, "es", {
+                      sensitivity: "base",
+                    });
                   })
                   .map((magazine) => (
-                    <MagazineCard
-                      key={magazine.id}
-                      magazine={magazine}
-                    />
+                    <MagazineCard key={magazine.id} magazine={magazine} />
                   ));
               })()}
             </div>
