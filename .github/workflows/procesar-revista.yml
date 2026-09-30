@@ -257,8 +257,7 @@ jobs:
 
       - name: PDF → JPEG
         run: |
-          exit 1
-          
+
           pdftoppm \
             -cropbox \
             -r 120 \
