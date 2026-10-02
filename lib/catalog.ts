@@ -13,6 +13,7 @@ export type Magazine = {
   r2_path?: string;
   prefix?: string;
   cover?: string;
+  fecha_importacion?: string;
 };
 
 export function slugify(value: string) {
@@ -58,28 +59,18 @@ export function displayCollection(collection: string) {
 
 export const magazines: Magazine[] = catalogData.map((magazine) => ({
   id: createMagazineId(magazine),
-
   estado: magazine.estado,
-
   editorial: magazine.editorial,
-
   collection: magazine.coleccion,
-
   issue: magazine.numero,
-
   name: magazine.nombre,
-
   archivo: magazine.archivo,
-
   ruta: magazine.ruta,
-
   paginas: magazine.paginas,
-
   r2_path: magazine.r2_path,
-
   prefix: magazine.prefix,
-
   cover: magazine.cover,
+  fecha_importacion: magazine.fecha_importacion,
 }));
 
 const R2_PUBLIC_URL =
@@ -102,9 +93,7 @@ export function magazineCoverUrl(magazine: Magazine) {
   }
 
   const editorial = slugifyPath(magazine.editorial);
-
   const collection = slugifyPath(magazine.collection);
-
   const issue = slugifyPath(magazine.issue || magazine.name);
 
   return `${R2_PUBLIC_URL}/magazines/${editorial}/${collection}/${issue}/cover.webp`;
@@ -116,9 +105,7 @@ export function magazineR2Path(magazine: Magazine) {
   }
 
   const editorial = slugifyPath(magazine.editorial);
-
   const collection = slugifyPath(magazine.collection);
-
   const issue = slugifyPath(magazine.issue || magazine.name);
 
   return `magazines/${editorial}/${collection}/${issue}`;
