@@ -3152,21 +3152,6 @@
   {
     "estado": "OK",
     "editorial": "Lana Grossa",
-    "coleccion": "Github Test 2",
-    "numero": "1",
-    "nombre": "Prueba GitHub 2",
-    "archivo": "prueba.pdf",
-    "ruta": "Remoto/Lana Grossa/Github Test 2/prueba.pdf",
-    "paginas": 3,
-    "r2_path": "magazines/lana-grossa/github-test-2/1",
-    "prefix": "prueba",
-    "cover": "cover.webp",
-    "fecha_importacion": "2026-09-29T17:37:27+00:00",
-    "origen": "remoto"
-  },
-  {
-    "estado": "OK",
-    "editorial": "Lana Grossa",
     "coleccion": "Prueba Web 2",
     "numero": "1",
     "nombre": "Prueba Web 1",
