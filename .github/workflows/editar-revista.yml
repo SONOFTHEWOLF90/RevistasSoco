@@ -1,0 +1,92 @@
+name: Editar revista
+
+on:
+  workflow_dispatch:
+    inputs:
+      r2_path:
+        description: "Ruta R2 de la revista"
+        required: true
+        type: string
+      editorial:
+        description: "Editorial"
+        required: true
+        type: string
+      collection:
+        description: "Colección"
+        required: true
+        type: string
+      issue:
+        description: "Número"
+        required: true
+        type: string
+      name:
+        description: "Nombre"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  editar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Actualizar datos de la revista
+        env:
+          R2_PATH: ${{ inputs.r2_path }}
+          EDITORIAL: ${{ inputs.editorial }}
+          COLLECTION: ${{ inputs.collection }}
+          ISSUE: ${{ inputs.issue }}
+          NAME: ${{ inputs.name }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          r2_path = os.environ["R2_PATH"].strip()
+
+          with open("catalogo.json", "r", encoding="utf-8") as f:
+              catalog = json.load(f)
+
+          magazine = next(
+              (
+                  item for item in catalog
+                  if str(item.get("r2_path", "")).strip() == r2_path
+              ),
+              None,
+          )
+
+          if magazine is None:
+              raise SystemExit(f"No se encontró la revista: {r2_path}")
+
+          magazine["editorial"] = os.environ["EDITORIAL"].strip()
+          magazine["coleccion"] = os.environ["COLLECTION"].strip()
+          magazine["numero"] = os.environ["ISSUE"].strip()
+          magazine["nombre"] = os.environ["NAME"].strip()
+
+          with open("catalogo.json", "w", encoding="utf-8") as f:
+              json.dump(catalog, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+
+          print("Revista actualizada correctamente.")
+          print(f"R2: {r2_path}")
+          PY
+
+      - name: Guardar cambios
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add catalogo.json
+
+          if git diff --cached --quiet; then
+            echo "No hay cambios que guardar."
+            exit 0
+          fi
+
+          git commit -m "Actualiza datos de revista"
+          git push
