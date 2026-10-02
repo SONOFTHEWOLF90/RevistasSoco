@@ -220,23 +220,67 @@ function ImportMagazine({ onBack }: { onBack: () => void }) {
     setResult(null);
 
     try {
-      const formData = new FormData();
+      const metadata = {
+        filename: file.name,
+        editorial: editorial.trim(),
+        collection: collection.trim(),
+        issue: issue.trim(),
+        name: name.trim(),
+      };
 
-      formData.append("pdf", file);
-      formData.append("editorial", editorial.trim());
-      formData.append("collection", collection.trim());
-      formData.append("issue", issue.trim());
-      formData.append("name", name.trim());
+      // 1. Solicitar a la API una URL temporal para subir el PDF a R2
+      const prepareResponse = await fetch("/api/importador/importar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "prepare",
+          ...metadata,
+        }),
+      });
 
+      const prepareData = await prepareResponse.json();
+
+      if (!prepareResponse.ok || !prepareData.success) {
+        throw new Error(
+          prepareData.error || "No se pudo preparar la subida del PDF.",
+        );
+      }
+
+      // 2. Subir el archivo directamente desde el navegador a Cloudflare R2
+      const uploadResponse = await fetch(prepareData.uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/pdf",
+        },
+        body: file,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(
+          "No se pudo subir el PDF directamente a Cloudflare R2. Revisa la configuración CORS del bucket.",
+        );
+      }
+
+      // 3. Avisar a la API que el PDF ya está en R2 e iniciar GitHub Actions
       const response = await fetch("/api/importador/importar", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "complete",
+          ...metadata,
+          importId: prepareData.importId,
+          pdfR2Path: prepareData.pdfR2Path,
+        }),
       });
 
       const data: ImportResult = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "No se pudo importar la revista.");
+        throw new Error(data.error || "No se pudo iniciar el procesamiento.");
       }
 
       setResult(data);
