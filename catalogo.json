@@ -3223,5 +3223,20 @@
     "cover": "cover.webp",
     "fecha_importacion": "2026-09-29T23:01:36+00:00",
     "origen": "remoto"
+  },
+  {
+    "estado": "OK",
+    "editorial": "Lana Grossa",
+    "coleccion": "Filati-Stricken",
+    "numero": "16",
+    "nombre": "FILATI S 16.00",
+    "archivo": "FILATI S 16.00.pdf",
+    "ruta": "Remoto/Lana Grossa/Filati-Stricken/FILATI S 16.00.pdf",
+    "paginas": 76,
+    "r2_path": "magazines/lana-grossa/filati-stricken/16",
+    "prefix": "f36710da-c79f-4680-adf4-119ca40e1744-FILATI_S_16.00",
+    "cover": "cover.webp",
+    "fecha_importacion": "2026-10-02T17:24:41+00:00",
+    "origen": "remoto"
   }
 ]
